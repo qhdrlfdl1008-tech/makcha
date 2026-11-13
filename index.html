@@ -362,10 +362,19 @@ footer { font-size: 12.5px; color: var(--muted); }
   /* ---------- main flow ---------- */
   function getPosition() {
     return new Promise(function (res, rej) {
-      if (!navigator.geolocation) return rej(new Error("이 브라우저는 위치를 지원하지 않아요"));
-      navigator.geolocation.getCurrentPosition(function (p) { res({ x: p.coords.longitude, y: p.coords.latitude }); },
-        function () { rej(new Error("위치를 가져오지 못했어요. 위치 권한을 허용하거나 '내 위치' 옆 검색으로 출발역을 고르세요.")); },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+      if (!window.isSecureContext) return rej(new Error("위치는 https 주소에서만 쓸 수 있어요. 주소가 https://로 시작하는지 확인하세요."));
+      if (!navigator.geolocation) return rej(new Error("이 브라우저는 위치를 지원하지 않아요. 카카오톡·인스타 안에서 열었다면 사파리나 크롬으로 다시 열어 주세요."));
+      var tried = false;
+      function ask(high) {
+        navigator.geolocation.getCurrentPosition(function (p) { res({ x: p.coords.longitude, y: p.coords.latitude }); },
+          function (err) {
+            if (err.code === 1) return rej(new Error("위치 권한이 꺼져 있어요. 아이폰: 설정 → 개인정보 보호 및 보안 → 위치 서비스 → Safari 웹 사이트 → '앱을 사용하는 동안'. 안드로이드: 크롬 주소창 왼쪽 아이콘 → 권한 → 위치 허용. 바꾼 뒤 페이지를 새로고침하세요."));
+            if (!tried) { tried = true; return ask(!high); }
+            rej(new Error(err.code === 3 ? "위치를 찾는 데 시간이 너무 걸려요. 창가나 밖에서 다시 눌러 보거나, 집 근처 역을 검색해서 정하세요." : "지금은 위치를 찾을 수 없어요. 폰의 위치 서비스(GPS)가 켜져 있는지 확인하세요."));
+          },
+          { enableHighAccuracy: high, timeout: high ? 15000 : 20000, maximumAge: 120000 });
+      }
+      ask(true);
     });
   }
 
@@ -450,8 +459,12 @@ footer { font-size: 12.5px; color: var(--muted); }
   $("btnSearch").onclick = doSearch;
   $("q").addEventListener("keydown", function (e) { if (e.key === "Enter") doSearch(); });
   $("btnHomeHere").onclick = function () {
-    getPosition().then(function (p) { S.home = { name: "집", x: p.x, y: p.y }; persist(); $("searchBox").hidden = true; calculate(); })
-      .catch(function (e) { setMsg(e.message, true); });
+    var b = $("btnHomeHere"); b.disabled = true; b.textContent = "위치 찾는 중…"; setMsg("위치를 찾고 있어요. 권한을 물어보면 '허용'을 눌러 주세요.");
+    getPosition().then(function (p) {
+      S.home = { name: "집", x: p.x, y: p.y }; persist(); $("searchBox").hidden = true;
+      setMsg("집 위치를 저장했어요."); render(); if (S.key) calculate();
+    }).catch(function (e) { setMsg(e.message, true); })
+      .then(function () { b.disabled = false; b.textContent = "지금 위치를 집으로 저장"; });
   };
   $("alts").onclick = function (e) { var b = e.target.closest(".alt"); if (!b) return; picked = +b.dataset.i; render(); scheduleNotify(false); };
   $("btnNotify").onclick = function () {
